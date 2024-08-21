@@ -1,6 +1,7 @@
 # ruff: noqa
 from .base import *  # noqa: F403, F401
 from .base import INSTALLED_APPS, MIDDLEWARE, env
+import json
 
 # GENERAL
 # ------------------------------------------------------------------------------
@@ -27,9 +28,15 @@ CACHES = {
 # EMAIL
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#email-host
-EMAIL_HOST = "localhost"
+with open('local.conf') as f:
+    CONF = json.load(f)
+
+EMAIL_HOST = CONF['EMAIL_HOST']
 # https://docs.djangoproject.com/en/dev/ref/settings/#email-port
-EMAIL_PORT = 2525
+EMAIL_PORT = CONF['EMAIL_PORT']
+EMAIL_HOST_USER = CONF['EMAIL_HOST_USER']
+EMAIL_HOST_PASSWORD = CONF['EMAIL_HOST_PASSWORD']
+EMAIL_USE_SSL = True
 
 # WhiteNoise
 # ------------------------------------------------------------------------------
