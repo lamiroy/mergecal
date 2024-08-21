@@ -29,7 +29,7 @@ class User(AbstractUser):
     subscription_tier = CharField(
         max_length=14,
         choices=SubscriptionTier.choices,
-        default=SubscriptionTier.FREE,
+        default=SubscriptionTier.SUPPORTER,
     )
 
     def get_absolute_url(self) -> str:
