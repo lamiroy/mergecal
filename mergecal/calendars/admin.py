@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.db.models import Count
+from django.db.models import Value, IntegerField
 from django.utils.html import format_html
 
 from .models import Calendar
@@ -65,7 +66,10 @@ class CalendarAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request).prefetch_related("owner")
-        return queryset.annotate(source_count=Count("calendarOf"))
+        try:
+            return queryset.annotate(source_count=Count("calendarOf"))
+        except ValueError as e:
+            return queryset.annotate(source_count=Value(0, IntegerField()))
 
     @admin.display(description="UUID")
     def uuid_link(self, obj):

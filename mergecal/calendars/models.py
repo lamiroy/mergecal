@@ -1,10 +1,18 @@
 # ruff: noqa: E501 ERA001
+import inspect
+import re
 import uuid
 import zoneinfo
 
 import requests
+import urllib
+import gettext
+
+from requests.auth import HTTPBasicAuth
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -18,7 +26,7 @@ from mergecal.core.utils import get_site_url
 TWELVE_HOURS_IN_SECONDS = 43200
 
 
-def validate_ical_url(url):
+def validate_auth_url(url, username=None, password=None):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
@@ -31,18 +39,56 @@ def validate_ical_url(url):
 
     # if url is meetup.com, skip validation
     if "meetup.com" in url:
-        return
+        return Source.CalendarTypes.MEETUP
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=10)
+        r.raise_for_status()
+        cal = Ical.from_ical(r.text)  # noqa: F841
+        return Source.CalendarTypes.ICAL
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 401:
+            raise ValidationError(f'Valid Username and Password Required\n{e}')
+        raise ValidationError(f'HTTPError {status_code}\n{e}')
+    except ValueError as e:
+        if re.search('webdav', str(e), re.IGNORECASE):
+            return Source.CalendarTypes.CALDAV
+
+        raise ValidationError(f"{inspect.currentframe().f_code.co_name}: enter a valid icalendar feed.\n{e}")
+
+
+def validate_ical_url(url, username=None, password=None):
+    # if url[-5:] != ".ical":
+    #    raise ValidationError(f'{url[-4:]} is not a valid calendar file extenstion')
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        # noqa: E501
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+        # noqa: E501
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "DNT": "1",  # Do Not Track Request Header
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    # if url is meetup.com skip Validation
+    if "meetup.com" in url:
+        return
+    try:
+        response = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=10)
         response.raise_for_status()
-        cal = Ical.from_ical(response.text)  # noqa: F841
-    except RequestException as err:
-        msg = "Enter a valid URL"
-        raise ValidationError(msg) from err
-    except ValueError as err:
-        msg = "Enter a valid iCalendar feed"
-        raise ValidationError(msg) from err
+        cal = Ical.from_ical(response.text)
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 401:
+            raise ValidationError(f'Password required {r.text} ({username},{password})')
+        raise ValidationError(f'{status_code} ConnectionError!\n{e}')
+    except requests.exceptions.RequestException as e:
+        raise ValidationError(f"{inspect.currentframe().f_code.co_name}: enter a valid URL.\n{e}")
+    except ValueError as e:
+        raise ValidationError(f"{inspect.currentframe().f_code.co_name}: enter a valid icalendar feed.\n{e}")
 
 
 class Calendar(TimeStampedModel):
@@ -169,10 +215,24 @@ class Source(TimeStampedModel):
     )
     url = models.URLField(
         max_length=400,
-        validators=[validate_ical_url],
+        #        validators=[validate_auth_url, validate_ical_url],
+        validators=[validate_auth_url],
         verbose_name="Feed URL",
         help_text="The URL of the iCal feed for this calendar source.",
     )
+    username = models.CharField(max_length=255, blank=True, null=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
+
+    class CalendarTypes(models.TextChoices):
+        ICAL = 'ICAL', 'Ical',
+        CALDAV = 'CDAV', 'CalDAV',
+        MEETUP = 'MTUP', 'Meetup',
+        UNKNOWN = 'UNKW', 'Unknown',
+
+    caltype = models.CharField(max_length=4,
+                               choices=CalendarTypes.choices,
+                               default=CalendarTypes.UNKNOWN, )
+
     calendar = models.ForeignKey(
         "calendars.Calendar",
         on_delete=models.CASCADE,
@@ -229,3 +289,5 @@ class Source(TimeStampedModel):
             ):
                 msg = "Customization features are only available for Business and Supporter plans"
                 raise ValidationError(msg)
+
+        self.caltype = validate_auth_url(self.url, self.username, self.password)

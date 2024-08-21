@@ -2,9 +2,15 @@
 
 import logging
 from datetime import timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import pytz
 import requests
+
+from webdav3.client import Client
+from icalendar import Calendar, Event, Timezone
+
 from django.core.cache import cache
 from django.utils import timezone
 from icalendar import Calendar
@@ -14,6 +20,7 @@ from icalendar import TimezoneStandard
 from mergecal.calendars.meetup import fetch_and_create_meetup_calendar
 from mergecal.calendars.meetup import is_meetup_url
 
+# Configure logging for the module
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +75,14 @@ def combine_calendar(calendar_instance, origin_domain):
             if is_meetup_url(source.url):
                 logger.info("Meetup URL detected: %s", source.url)
                 cal_data = fetch_and_create_meetup_calendar(source.url)
+            elif is_caldav_url(source.url):
+                logger.info(f"Caldav URL detected: {source.url}")
+
+                try:
+                    pass
+                except Exception as err:
+                    logger.error(f"Unexpected error with URL {source.url}: {err}")
+
             else:
                 try:
                     cal_data = fetch_calendar_data(source.url)
@@ -153,3 +168,78 @@ def process_calendar_data(  # noqa: PLR0913
                 newcal.add_component(component)
                 if uid is not None:
                     existing_uids.add(uid)
+
+def is_caldav_url(url):
+
+    parsed_url = urlparse(url)
+
+    auth = None
+    (username, password) = auth
+    options = {
+        'webdav_hostname': f'{parsed_url.scheme}://{parsed_url.netloc}',
+        'webdav_login':    username,
+        'webdav_password': password,
+    }
+
+    client = Client(options)
+    client.info(parsed_url.path)
+    # client.verify = False # To not check SSL certificates (Default = True)
+    # client.download_sync(remote_path=info.path, local_path="/tmp/test.txt")
+    # client.pull(remote_directory=info.path, local_directory="/tmp/test.txt")
+
+    return False
+
+
+def is_meetup_url(url):
+    # Parse the URL
+    parsed_url = urlparse(url)
+
+    # Check if the domain is 'meetup.com'
+    return parsed_url.netloc.endswith("meetup.com")
+
+
+def extract_meetup_group_name(url):
+    # Parse the URL
+    parsed_url = urlparse(url)
+
+    # Split the path into segments
+    path_segments = parsed_url.path.split("/")
+
+    # The group name should be the second segment in the path (after 'meetup.com/')
+    if len(path_segments) >= 2:
+        return path_segments[1]
+    else:
+        return None
+
+
+def create_calendar_from_meetup_api_respone(events):
+    # Create a calendar
+    cal = Calendar()
+
+    # Set some global calendar properties
+    cal.add("prodid", "-//My Calendar//mxm.dk//")
+    cal.add("version", "2.0")
+
+    for event in events:
+        # Create an event
+        e = Event()
+
+        # Add event details
+        e.add("summary", event["name"])
+        e.add("dtstart", datetime.fromtimestamp(event["time"] / 1000, tz=pytz.utc))
+        e.add(
+            "dtend",
+            datetime.fromtimestamp(
+                (event["time"] + event["duration"]) / 1000, tz=pytz.utc
+            ),
+        )
+        e.add("dtstamp", datetime.fromtimestamp(event["created"] / 1000, tz=pytz.utc))
+        e.add("description", event["description"])
+        e.add("location", event.get("venue", {}).get("address_1", "No location"))
+        e.add("url", event["link"])
+
+        # Add event to calendar
+        cal.add_component(e)
+
+    # Return the calendar as a string
+    return cal

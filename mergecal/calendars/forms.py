@@ -5,7 +5,7 @@ from crispy_forms.layout import HTML
 from crispy_forms.layout import Field
 from crispy_forms.layout import Layout
 from crispy_forms.layout import Submit
-from django.forms import ModelForm
+from django.forms import ModelForm, Select, TextInput, PasswordInput
 
 from .models import Calendar
 from .models import Source
@@ -72,7 +72,13 @@ class SourceForm(ModelForm):
             "include_location",
             "custom_prefix",
             "exclude_keywords",
+            "username",
+            "password",
         )
+        widgets = {
+            "username": TextInput(attrs={"title": "Username (leave blank if none)"}),
+            "password": PasswordInput(attrs={"title": "Password (leave blank if none)"}),
+        }
 
     def __init__(self, *args, **kwargs):
         self.calendar = kwargs.pop("calendar", None)
@@ -96,6 +102,8 @@ class SourceForm(ModelForm):
         self.helper.layout = Layout(
             Field("name", css_class="form-control"),
             Field("url", css_class="form-control"),
+            Field("username", css_class="form-control"),
+            Field("password", css_class="form-control"),
             Div(
                 Field("include_title"),
                 Field("include_description"),

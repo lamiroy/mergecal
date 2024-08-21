@@ -6,6 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.db.models import Prefetch
+from django.db.models import Value, IntegerField
 from django.http import Http404
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
@@ -40,25 +41,39 @@ class UserCalendarListView(LoginRequiredMixin, ListView):
     context_object_name = "calendars"
 
     def get_queryset(self):
-        return (
-            Calendar.objects.filter(owner=self.request.user)
-            .annotate(source_count=Count("calendarOf"))
-            .prefetch_related(
-                Prefetch(
-                    "calendarOf",
-                    queryset=Source.objects.all()[:5],
-                    to_attr="recent_sources",
-                ),
+        try:
+            v = Calendar.objects.filter(owner=self.request.user) \
+                .annotate(source_count=Count("calendarOf")) \
+                .prefetch_related(
+                    Prefetch(
+                        "calendarOf",
+                        queryset=Source.objects.all()[:5],
+                        to_attr="recent_sources",
+                    ),
+                ) \
+                .select_related("owner")
+            print(v)
+            return v
+        except ValueError as e:
+            v = (
+                Calendar.objects.filter(owner=self.request.user)
+                .annotate(source_count=Value(0, IntegerField()))
+                .annotate(recent_sources=Value(''))
+                .select_related("owner")
             )
-            .select_related("owner")
-        )
+            return v
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["total_calendars"] = self.get_queryset().count()
-        context["total_sources"] = sum(
-            calendar.source_count for calendar in context["calendars"]
-        )
+        try:
+            context["total_sources"] = sum(
+                calendar.source_count for calendar in context["calendars"]
+            )
+        except ValueError as e:
+            context["total_sources"] = 0
+            print(f'***BARTERROR*** {e}')
+
         context["domain_name"] = get_site_url()
         return context
 
@@ -66,7 +81,7 @@ class UserCalendarListView(LoginRequiredMixin, ListView):
         user = request.user
         calendars = self.get_queryset()
 
-        if user.is_free_tier and calendars.count() == 0:
+        if False and (user.is_free_tier and calendars.count() == 0):
             messages.info(
                 request,
                 "To start creating calendars, please sign up for a plan.",
@@ -222,15 +237,22 @@ class CalendarFileAPIView(APIView):
 
     def process_calendar_request(self, uuid):
         try:
+            print(f'******\n\n{uuid}\n\n****')
             calendar = get_object_or_404(
                 Calendar.objects.select_related("owner"),
                 uuid=uuid,
             )
         except Http404:
+            print(f'******\n\n{404}\n\n****')
+
             return Response(
                 {"error": "Calendar not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except Exception as e:
+            print(f'******\n\n{e}\n\n****')
+            raise(e)
+
 
         merger = CalendarMerger(calendar, self.request)
         calendar_str = merger.merge()
