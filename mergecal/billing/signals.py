@@ -5,16 +5,67 @@ from typing import Any
 from django.contrib.auth.signals import user_logged_in
 from django.dispatch import receiver
 from django.http import HttpRequest
-from djstripe.event_handlers import djstripe_receiver
+#from djstripe.event_handlers import djstripe_receiver
 from djstripe.models import Customer
 from djstripe.models import Event
 from djstripe.models import Invoice
 from djstripe.models import Subscription
+from djstripe.signals import WEBHOOK_SIGNALS
 
 from mergecal.billing.emails import upgrade_subscription_email
 from mergecal.users.models import User
 
 logger = logging.getLogger(__name__)
+
+def djstripe_receiver(signal_names):
+    """
+    A wrapper around django's receiver to do some error checking.
+
+    Ultimately connects event handlers to Django signals.
+
+    Usage:
+    Apply this decorator to a function, providing the 'signal_names.'
+    It connects the function to the specified signal if 'signal_name' is enabled.
+
+    Parameters:
+    - signal_names (list or tuple or str): List or tuple of event names or just the event name itself.
+
+    Example:
+    @djstripe_receiver("my_signal")
+    def my_event_handler(sender, event, **kwargs):
+        # Custom event handling logic here
+
+    @djstripe_receiver(["my_signal_1", "my_signal_2"])
+    def my_event_handler(sender, event, **kwargs):
+        # Custom event handling logic here
+
+    """
+
+    def _check_signal_exists(signal_name):
+        """Helper function to make sure user does not register any event we do not yet support."""
+        signal = WEBHOOK_SIGNALS.get(signal_name)
+        if not signal:
+            raise RuntimeError(
+                f"Event '{signal_name}' is not enabled. This is a dj-stripe bug! Please raise a ticket and our maintainers will get right to it."
+            )
+        return signal
+
+    signals = []
+    if isinstance(signal_names, (list, tuple)):
+        for signal_name in signal_names:
+            signals.append(_check_signal_exists(signal_name))
+    else:
+        signals.append(_check_signal_exists(signal_names))
+
+    def inner(handler, **kwargs):
+        """
+        Connectes the given handler to the given signal
+        """
+        # same as decorating the handler with receiver
+        handler = receiver(signals, sender=Event, **kwargs)(handler)
+        return handler
+
+    return inner
 
 
 def update_user_subscription_tier(user: User, subscription: Subscription) -> None:
