@@ -7,7 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.db.models import Prefetch
 from django.db.models import Value, IntegerField
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -22,6 +22,8 @@ from django.views.generic import DeleteView
 from django.views.generic import ListView
 from django.views.generic import UpdateView
 from rest_framework import status
+from rest_framework.decorators import renderer_classes, api_view
+from rest_framework.renderers import TemplateHTMLRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -45,12 +47,12 @@ class UserCalendarListView(LoginRequiredMixin, ListView):
             v = Calendar.objects.filter(owner=self.request.user) \
                 .annotate(source_count=Count("calendarOf")) \
                 .prefetch_related(
-                    Prefetch(
-                        "calendarOf",
-                        queryset=Source.objects.all()[:5],
-                        to_attr="recent_sources",
-                    ),
-                ) \
+                Prefetch(
+                    "calendarOf",
+                    queryset=Source.objects.all()[:5],
+                    to_attr="recent_sources",
+                ),
+            ) \
                 .select_related("owner")
             print(v)
             return v
@@ -228,36 +230,62 @@ def source_delete(request, pk):
     return redirect("calendars:calendar_update", uuid=uuid)
 
 
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ]
+}
+
+
 class CalendarFileAPIView(APIView):
+
+
+    def dispatch(self, request, *args, **kwargs):
+
+        def json_response_handler404(request, exception=None):
+            data = {'status': 501, 'message': "Not Implemented"}
+            return JsonResponse(data=data, status=501)
+
+        if request.method == 'GET':
+            return self.get(request, *args, **kwargs)
+        elif request.method == 'POST':
+            return self.post(request, *args, **kwargs)
+        else:
+            logger.info(f"Unhandled dispatch {request}")
+            content = {'error': f'Cannot handle {request}'}
+            # return Response(content, status=status.HTTP_501_NOT_IMPLEMENTED)
+            return json_response_handler404(request)
+
     def get(self, request, uuid):
+        print(self.process_calendar_request(uuid))
         return self.process_calendar_request(uuid)
 
     def post(self, request, uuid):
+        print(self.process_calendar_request(uuid))
         return self.process_calendar_request(uuid)
 
     def process_calendar_request(self, uuid):
         try:
-            print(f'******\n\n{uuid}\n\n****')
             calendar = get_object_or_404(
                 Calendar.objects.select_related("owner"),
                 uuid=uuid,
             )
         except Http404:
-            print(f'******\n\n{404}\n\n****')
-
             return Response(
                 {"error": "Calendar not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
-            print(f'******\n\n{e}\n\n****')
-            raise(e)
-
+            content = {'error': "Unhandled REST request"}
+            return Response(content, status=status.HTTP_501_NOT_IMPLEMENTED)
 
         merger = CalendarMerger(calendar, self.request)
         calendar_str = merger.merge()
 
         if not calendar_str:
+            print(f'3_ ******\n\n{uuid} FAILED\n\n****')
+
             return Response(
                 {"error": "Failed to generate calendar data"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
