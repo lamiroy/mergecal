@@ -1,12 +1,13 @@
 # ruff: noqa: PLR0912, ERA001, PLR0915
 
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import pytz
 import requests
+from requests.auth import HTTPBasicAuth
 
 from webdav3.client import Client
 from icalendar import Calendar, Event, Timezone
@@ -17,14 +18,19 @@ from icalendar import Calendar
 from icalendar import Timezone
 from icalendar import TimezoneStandard
 
+from mergecal.calendars.caldav import fetch_and_create_caldav_calendar
 from mergecal.calendars.meetup import fetch_and_create_meetup_calendar
 from mergecal.calendars.meetup import is_meetup_url
+from mergecal.calendars.caldav import is_caldav_url
+from mergecal.calendars.models import Source
 
 # Configure logging for the module
 logger = logging.getLogger(__name__)
 
 
 def combine_calendar(calendar_instance, origin_domain):
+    logger.info(f'Getting CalDAV data from {calendar_instance.url} with "{origin_domain}"')
+
     cal_bye_str = cache.get(f"calendar_str_{calendar_instance.uuid}")
     user = calendar_instance.owner
     if not user.is_free_tier or not cal_bye_str:
@@ -72,12 +78,20 @@ def combine_calendar(calendar_instance, origin_domain):
 
         for source in calendar_instance.calendarOf.all():
             cal_data = None
-            if is_meetup_url(source.url):
+            if source.caltype == Source.CalendarTypes.MEETUP or (source.caltype == Source.CalendarTypes.UNKNOWN and
+                                                                 is_meetup_url(source.url)):
                 logger.info("Meetup URL detected: %s", source.url)
                 cal_data = fetch_and_create_meetup_calendar(source.url)
-            elif is_caldav_url(source.url):
+            elif source.caltype == Source.CalendarTypes.CALDAV or (source.caltype == Source.CalendarTypes.UNKNOWN and
+                                                                   is_caldav_url(source.url)):
                 logger.info(f"Caldav URL detected: {source.url}")
 
+                # If authentication is required
+                print(f'Getting CalDAV data from {source.url} with "{source.username}", "{source.password}"')
+                logger.info(f'Getting CalDAV data from {source.url} with "{source.username}", "{source.password}"')
+
+                auth = HTTPBasicAuth(source.username, source.password)
+                cal_data = fetch_and_create_caldav_calendar(source.url, auth)
                 try:
                     pass
                 except Exception as err:
@@ -119,8 +133,10 @@ def combine_calendar(calendar_instance, origin_domain):
 def fetch_calendar_data(url):
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",  # noqa: E501
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",  # noqa: E501
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            # noqa: E501
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            # noqa: E501
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
@@ -157,11 +173,10 @@ def process_calendar_data(  # noqa: PLR0913
                 component["summary"] = f"{source_name}: {original_summary}"
             # if warning_text != "":
             # component["description"] = f"{warning_text}\n\n{description}"
-            advertisement = "\nThis event is brought to you by https://mergecal.org."
             if component.get("description"):
-                component["description"] = component["description"] + advertisement
+                component["description"] = component["description"]
             else:
-                component.add("description", advertisement)
+                component.add("description")
 
             # Add the event if it has a unique UID or if it doesn't have a UID at all
             if uid is None or uid not in existing_uids:
@@ -169,77 +184,3 @@ def process_calendar_data(  # noqa: PLR0913
                 if uid is not None:
                     existing_uids.add(uid)
 
-def is_caldav_url(url):
-
-    parsed_url = urlparse(url)
-
-    auth = None
-    (username, password) = auth
-    options = {
-        'webdav_hostname': f'{parsed_url.scheme}://{parsed_url.netloc}',
-        'webdav_login':    username,
-        'webdav_password': password,
-    }
-
-    client = Client(options)
-    client.info(parsed_url.path)
-    # client.verify = False # To not check SSL certificates (Default = True)
-    # client.download_sync(remote_path=info.path, local_path="/tmp/test.txt")
-    # client.pull(remote_directory=info.path, local_directory="/tmp/test.txt")
-
-    return False
-
-
-def is_meetup_url(url):
-    # Parse the URL
-    parsed_url = urlparse(url)
-
-    # Check if the domain is 'meetup.com'
-    return parsed_url.netloc.endswith("meetup.com")
-
-
-def extract_meetup_group_name(url):
-    # Parse the URL
-    parsed_url = urlparse(url)
-
-    # Split the path into segments
-    path_segments = parsed_url.path.split("/")
-
-    # The group name should be the second segment in the path (after 'meetup.com/')
-    if len(path_segments) >= 2:
-        return path_segments[1]
-    else:
-        return None
-
-
-def create_calendar_from_meetup_api_respone(events):
-    # Create a calendar
-    cal = Calendar()
-
-    # Set some global calendar properties
-    cal.add("prodid", "-//My Calendar//mxm.dk//")
-    cal.add("version", "2.0")
-
-    for event in events:
-        # Create an event
-        e = Event()
-
-        # Add event details
-        e.add("summary", event["name"])
-        e.add("dtstart", datetime.fromtimestamp(event["time"] / 1000, tz=pytz.utc))
-        e.add(
-            "dtend",
-            datetime.fromtimestamp(
-                (event["time"] + event["duration"]) / 1000, tz=pytz.utc
-            ),
-        )
-        e.add("dtstamp", datetime.fromtimestamp(event["created"] / 1000, tz=pytz.utc))
-        e.add("description", event["description"])
-        e.add("location", event.get("venue", {}).get("address_1", "No location"))
-        e.add("url", event["link"])
-
-        # Add event to calendar
-        cal.add_component(e)
-
-    # Return the calendar as a string
-    return cal

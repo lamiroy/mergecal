@@ -240,7 +240,6 @@ REST_FRAMEWORK = {
 
 class CalendarFileAPIView(APIView):
 
-
     def dispatch(self, request, *args, **kwargs):
 
         def json_response_handler404(request, exception=None):
@@ -258,11 +257,9 @@ class CalendarFileAPIView(APIView):
             return json_response_handler404(request)
 
     def get(self, request, uuid):
-        print(self.process_calendar_request(uuid))
         return self.process_calendar_request(uuid)
 
     def post(self, request, uuid):
-        print(self.process_calendar_request(uuid))
         return self.process_calendar_request(uuid)
 
     def process_calendar_request(self, uuid):
@@ -284,8 +281,6 @@ class CalendarFileAPIView(APIView):
         calendar_str = merger.merge()
 
         if not calendar_str:
-            print(f'3_ ******\n\n{uuid} FAILED\n\n****')
-
             return Response(
                 {"error": "Failed to generate calendar data"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

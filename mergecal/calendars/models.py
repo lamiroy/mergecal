@@ -41,8 +41,9 @@ def validate_auth_url(url, username=None, password=None):
     if "meetup.com" in url:
         return Source.CalendarTypes.MEETUP
 
+    timeout_value = 30
     try:
-        r = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=10)
+        r = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=30)
         r.raise_for_status()
         cal = Ical.from_ical(r.text)  # noqa: F841
         return Source.CalendarTypes.ICAL
@@ -56,6 +57,8 @@ def validate_auth_url(url, username=None, password=None):
             return Source.CalendarTypes.CALDAV
 
         raise ValidationError(f"{inspect.currentframe().f_code.co_name}: enter a valid icalendar feed.\n{e}")
+    except requests.exceptions.ReadTimeout:
+        raise ValidationError(f"Connexion timed out after {timeout_value} seconds. Please try again later")
 
 
 def validate_ical_url(url, username=None, password=None):
@@ -79,7 +82,7 @@ def validate_ical_url(url, username=None, password=None):
     try:
         response = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=10)
         response.raise_for_status()
-        cal = Ical.from_ical(response.text)
+        _ = Ical.from_ical(response.text)
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
@@ -216,7 +219,7 @@ class Source(TimeStampedModel):
     url = models.URLField(
         max_length=400,
         #        validators=[validate_auth_url, validate_ical_url],
-        validators=[validate_auth_url],
+        # validators=[validate_auth_url],
         verbose_name="Feed URL",
         help_text="The URL of the iCal feed for this calendar source.",
     )
@@ -289,5 +292,6 @@ class Source(TimeStampedModel):
             ):
                 msg = "Customization features are only available for Business and Supporter plans"
                 raise ValidationError(msg)
+
 
         self.caltype = validate_auth_url(self.url, self.username, self.password)
