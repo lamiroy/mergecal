@@ -54,7 +54,6 @@ class UserCalendarListView(LoginRequiredMixin, ListView):
                 ),
             ) \
                 .select_related("owner")
-            print(v)
             return v
         except ValueError as e:
             v = (

@@ -23,8 +23,7 @@ def is_caldav_url(url: str, auth=None) -> bool:
 
 
 def fetch_and_create_caldav_calendar(caldav_url: str, auth) -> Ical | None:
-    logger.info(f"Using CalDAV calendar {caldav_url} with {auth}")
-    print(f"Using CalDAV calendar {caldav_url} with {auth}")
+    logger.info(f"Using CalDAV calendar {caldav_url}")
     if is_caldav_url(caldav_url, auth):
         try:
             return get_ics(caldav_url, auth)
@@ -46,7 +45,6 @@ def get_ics(url, auth) -> Ical:
 
     for event in results:
         icalEvent = Ical.from_ical(event._data)
-        logger.info(f"Got CalDAV event {icalEvent}")
 
         for component in icalEvent.subcomponents:
             if component.name == "VEVENT":

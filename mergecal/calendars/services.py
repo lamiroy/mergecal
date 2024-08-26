@@ -11,11 +11,13 @@ from icalendar import Timezone
 from icalendar import TimezoneStandard
 from requests import RequestException
 from requests import Session
+from requests.auth import HTTPBasicAuth
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from mergecal.calendars.meetup import fetch_and_create_meetup_calendar
 from mergecal.calendars.meetup import is_meetup_url
+from .caldav import is_caldav_url, fetch_and_create_caldav_calendar
 
 from .models import Calendar
 from .models import Source
@@ -94,8 +96,13 @@ class CalendarMerger:
 
     def _add_source_events(self, source: Source, existing_uids: set) -> None:
         source_calendar = None
-        if is_meetup_url(source.url):
+        if source.caltype == Source.CalendarTypes.MEETUP or (source.caltype == Source.CalendarTypes.UNKNOWN and
+                                                             is_meetup_url(source.url)):
             source_calendar = fetch_and_create_meetup_calendar(source.url)
+        elif source.caltype == Source.CalendarTypes.CALDAV or (source.caltype == Source.CalendarTypes.UNKNOWN and
+                                                               is_caldav_url(source.url)):
+            auth = HTTPBasicAuth(username=source.username, password=source.password)
+            source_calendar = fetch_and_create_caldav_calendar(source.url, auth)
         else:
             source_calendar = self._fetch_source_calendar(source)
         if source_calendar:
@@ -104,6 +111,7 @@ class CalendarMerger:
 
     def _fetch_source_calendar(self, source: Source) -> None | ICalendar:
         url = source.url
+        auth = HTTPBasicAuth(username=source.username, password=source.password)
         headers = {
             "User-Agent": "MergeCal/1.0 (https://mergecal.org)",
             "Accept": "text/calendar, application/calendar+xml, application/calendar+json",  # noqa: E501
@@ -119,7 +127,7 @@ class CalendarMerger:
                 raise ValueError(msg)
 
         try:
-            response = session.get(url, headers=headers, timeout=30)
+            response = session.get(url, headers=headers, timeout=30, auth=auth)
             response.encoding = "utf-8"
             response.raise_for_status()
 
