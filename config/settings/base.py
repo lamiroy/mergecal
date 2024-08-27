@@ -1,6 +1,6 @@
 # ruff: noqa: ERA001, E501
 """Base settings to build other settings files upon."""
-
+import os
 from pathlib import Path
 
 import environ
@@ -95,6 +95,7 @@ THIRD_PARTY_APPS = [
     "tz_detect",
     "taggit",
     "django_social_share",
+    "encrypted_model_fields",
 ]
 
 LOCAL_APPS = [
@@ -375,3 +376,6 @@ STRIPE_PRICE_TABLE_ID = env("STRIPE_PRICE_TABLE_ID", default="")
 
 # https://django-dynamic-breadcrumbs.readthedocs.io/en/latest/ref/settings.html#dynamic-breadcrumbs-path-max-depth
 DYNAMIC_BREADCRUMBS_PATH_MAX_DEPTH = 8
+
+# https://pypi.org/project/django-encrypted-model-fields/
+FIELD_ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', '')

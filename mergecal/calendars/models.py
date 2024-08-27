@@ -5,19 +5,16 @@ import uuid
 import zoneinfo
 
 import requests
-import urllib
-import gettext
 
 from requests.auth import HTTPBasicAuth
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator
+from encrypted_model_fields.fields import EncryptedCharField
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from icalendar import Calendar as Ical
-from requests.exceptions import RequestException
 
 from mergecal.core.constants import SourceLimits
 from mergecal.core.models import TimeStampedModel
@@ -28,8 +25,10 @@ TWELVE_HOURS_IN_SECONDS = 43200
 
 def validate_auth_url(url, username=None, password=None):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,"
+                  "application/signed-exchange;v=b3;q=0.9",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
@@ -50,6 +49,8 @@ def validate_auth_url(url, username=None, password=None):
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
+            if re.search('oauth', str(r.text), re.IGNORECASE):
+                raise ValidationError(f'OAuth Authentication Requires')
             raise ValidationError(f'Valid Username and Password Required\n{e}')
         raise ValidationError(f'HTTPError {status_code}\n{e}')
     except ValueError as e:
@@ -65,9 +66,11 @@ def validate_ical_url(url, username=None, password=None):
     # if url[-5:] != ".ical":
     #    raise ValidationError(f'{url[-4:]} is not a valid calendar file extenstion')
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/91.0.4472.124 Safari/537.36",
         # noqa: E501
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,"
+                  "application/signed-exchange;v=b3;q=0.9",
         # noqa: E501
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
@@ -76,6 +79,7 @@ def validate_ical_url(url, username=None, password=None):
         "Upgrade-Insecure-Requests": "1",
     }
 
+    response = None
     # if url is meetup.com skip Validation
     if "meetup.com" in url:
         return
@@ -86,7 +90,7 @@ def validate_ical_url(url, username=None, password=None):
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
-            raise ValidationError(f'Password required {r.text} ({username},{password})')
+            raise ValidationError(f'Password required {response.text} ({username},{password})')
         raise ValidationError(f'{status_code} ConnectionError!\n{e}')
     except requests.exceptions.RequestException as e:
         raise ValidationError(f"{inspect.currentframe().f_code.co_name}: enter a valid URL.\n{e}")
@@ -194,7 +198,8 @@ class Calendar(TimeStampedModel):
     def get_calendar_iframe(self):
         domain_name = get_site_url()
         iframe_url = reverse("calendars:calendar_iframe", kwargs={"uuid": self.uuid})
-        return f'<iframe src="{domain_name}{iframe_url}" width="100%" height="600" style="border: 1px solid #ccc;" title="MergeCal Embedded Calendar"></iframe>'
+        return (f'<iframe src="{domain_name}{iframe_url}" width="100%" height="600" style="border: 1px solid #ccc;" '
+                f'title="MergeCal Embedded Calendar"></iframe>')
 
     @property
     def can_add_source(self):
@@ -218,13 +223,19 @@ class Source(TimeStampedModel):
     )
     url = models.URLField(
         max_length=400,
-        #        validators=[validate_auth_url, validate_ical_url],
-        # validators=[validate_auth_url],
         verbose_name="Feed URL",
         help_text="The URL of the iCal feed for this calendar source.",
     )
-    username = models.CharField(max_length=255, blank=True, null=True)
-    password = models.CharField(max_length=255, blank=True, null=True)
+    username = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    password = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
 
     class CalendarTypes(models.TextChoices):
         ICAL = 'ICAL', 'Ical',
@@ -267,7 +278,8 @@ class Source(TimeStampedModel):
     exclude_keywords = models.TextField(
         blank=True,
         verbose_name="Exclude Keywords",
-        help_text="Enter keywords separated by commas. Events from this feed containing these keywords in their title will be excluded from the merged calendar.",
+        help_text="Enter keywords separated by commas. Events from this feed containing these keywords in their title "
+                  "will be excluded from the merged calendar.",
     )
 
     def __str__(self):
@@ -292,6 +304,5 @@ class Source(TimeStampedModel):
             ):
                 msg = "Customization features are only available for Business and Supporter plans"
                 raise ValidationError(msg)
-
 
         self.caltype = validate_auth_url(self.url, self.username, self.password)
