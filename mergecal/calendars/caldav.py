@@ -1,18 +1,13 @@
 import logging
-from urllib.parse import urlparse
 
 import caldav
 import requests
 from icalendar import Calendar as Ical
-from icalendar import Event
 
 logger = logging.getLogger(__name__)
 
 
 def is_caldav_url(url: str, auth=None) -> bool:
-    # Parse the URL
-    # parsed_url = urlparse(url, 'https')
-
     try:
         with caldav.DAVClient(url=url, auth=auth) as client:
             _ = client.principal()
