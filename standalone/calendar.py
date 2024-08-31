@@ -31,10 +31,11 @@ class Calendar:
         self.name = name
         self.timezone = "Europe/Paris"
         self.include_source = False  # Include source name in event title
-        self.sources = []
+        self.sources = {}
 
-    def addSource(self):
-        pass
+    def addSource(self, src):
+        assert isinstance(src, Source)
+        self.sources.add(src)
 
     def deleteSource(self):
         pass
@@ -181,7 +182,7 @@ class CalendarMerger:
 
     def _add_sources(self) -> None:
         existing_uids = set()
-        for source in self.calendar.calendarOf.all():
+        for source in self.calendar.sources:
             self._add_source_events(source, existing_uids)
 
     def _add_source_events(self, source: Source, existing_uids: set) -> None:
@@ -209,7 +210,6 @@ class CalendarMerger:
             "Accept-Language": "en-US,en;q=0.9",
             "Cache-Control": "no-cache",
         }
-
 
         def validate_calendar(cal: ICal) -> None:
             if not cal.walk():
