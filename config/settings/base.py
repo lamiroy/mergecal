@@ -52,7 +52,12 @@ DATABASES = {
         "DATABASE_URL",
         default="postgres:///mergecal",
     ),
+    "standalone": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": "mergecal",
+    }
 }
+
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 # https://docs.djangoproject.com/en/stable/ref/settings/#std:setting-DEFAULT_AUTO_FIELD
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
