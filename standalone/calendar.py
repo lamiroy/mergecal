@@ -4,15 +4,17 @@ import zoneinfo
 from datetime import timedelta, datetime
 from enum import Enum
 
-import requests
+import pytz
 from requests import RequestException, Session
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import HTTPError, ReadTimeout
+from requests import get as rq_get
 
 from icalendar import Calendar as ICal, TimezoneStandard, Timezone, Event
 
-from mergecal.mergecal.calendars.caldav import is_caldav_url, fetch_and_create_caldav_calendar
-from mergecal.mergecal.calendars.meetup import is_meetup_url, fetch_and_create_meetup_calendar
-from mergecal.standalone import logger
+from mergecal.calendars.caldav import is_caldav_url, fetch_and_create_caldav_calendar
+from mergecal.calendars.meetup import is_meetup_url, fetch_and_create_meetup_calendar
+from standalone import logger
 
 
 class Calendar:
@@ -31,7 +33,7 @@ class Calendar:
         self.name = name
         self.timezone = "Europe/Paris"
         self.include_source = False  # Include source name in event title
-        self.sources = {}
+        self.sources = set()
 
     def addSource(self, src):
         assert isinstance(src, Source)
@@ -60,17 +62,19 @@ class Source:
         MEETUP = 'MTUP'
         UNKNOWN = 'UNKW'
 
-    def __init__(self, url: str, *, name: str = 'default', username: str = None, password: str = None):
+    def __init__(self, url: str, *, name: str = 'default', username: str = None, password: str = None,
+                 type: str = 'UNKW', include_description: bool = False, include_title: bool = False,
+                 include_location: bool = False, prefix: str = None, exclude_keywords: str = ''):
         self._name = name  # CharField
         self._url = url  # URLField
         self._username = username  # EncryptedCharField
         self._password = password  # EncryptedCharField
-        self._caltype = Source.CalendarTypes.UNKNOWN
-        self._include_title = True  # BooleanField
-        self.include_description = False  # BooleanField - Include Event Description
-        self.include_location = True  # BooleanField - Include Event Location,
-        self.custom_prefix = None  # CharField optional prefix to add before each event title from this feed (e.g., '[Work]').
-        self.exclude_keywords = ''  # TextField keywords separated by commas. Events from this feed containing these keywords in their title
+        self._caltype = Source.CalendarTypes(type).name
+        self._include_title = include_title  # BooleanField
+        self.include_description = include_description  # BooleanField - Include Event Description
+        self.include_location = include_location  # BooleanField - Include Event Location,
+        self.custom_prefix = prefix  # CharField optional prefix to add before each event title from this feed (e.g., '[Work]').
+        self.exclude_keywords = exclude_keywords  # TextField keywords separated by commas. Events from this feed containing these keywords in their title
 
     @property
     def name(self) -> str:
@@ -122,11 +126,11 @@ def validate_auth_url(url, username=None, password=None):
 
     timeout_value = 30
     try:
-        r = requests.get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=30)
+        r = rq_get(url, headers=headers, auth=HTTPBasicAuth(username, password), timeout=30)
         r.raise_for_status()
         cal = ICal.from_ical(r.text)  # noqa: F841
         return Source.CalendarTypes.ICAL
-    except requests.exceptions.HTTPError as e:
+    except HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
             if re.search('oauth', str(r.text), re.IGNORECASE):
@@ -138,7 +142,7 @@ def validate_auth_url(url, username=None, password=None):
             return Source.CalendarTypes.CALDAV
 
         raise RuntimeError(f"{inspect.currentframe().f_code.co_name}: enter a valid icalendar feed.\n{e}")
-    except requests.exceptions.ReadTimeout:
+    except ReadTimeout:
         raise RuntimeError(f"Connexion timed out after {timeout_value} seconds. Please try again later")
 
 
@@ -165,6 +169,7 @@ class CalendarMerger:
 
     def _add_timezone(self, cal: ICal) -> None:
         tzinfo = zoneinfo.ZoneInfo(self.calendar.timezone)
+        tz_pytz = pytz.timezone(self.calendar.timezone)
         newtimezone = Timezone()
         newtimezone.add("tzid", tzinfo.key)
 
@@ -174,8 +179,8 @@ class CalendarMerger:
             "dtstart",
             now - timedelta(days=1),
         )
-        std.add("tzoffsetfrom", timedelta(seconds=-now.utcoffset().total_seconds()))
-        std.add("tzoffsetto", timedelta(seconds=-now.utcoffset().total_seconds()))
+        std.add("tzoffsetfrom", timedelta(seconds=-tz_pytz.utcoffset(now).total_seconds()))
+        std.add("tzoffsetto", timedelta(seconds=-tz_pytz.utcoffset(now).total_seconds()))
         newtimezone.add_component(std)
 
         cal.add_component(newtimezone)
