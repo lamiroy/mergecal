@@ -3,6 +3,7 @@ import re
 import zoneinfo
 from datetime import timedelta, datetime
 from enum import Enum
+import pandas as pd
 
 import pytz
 from requests import RequestException, Session
@@ -63,17 +64,17 @@ class Source:
         UNKNOWN = 'UNKW'
 
     def __init__(self, url: str, *, name: str = 'default', username: str = None, password: str = None,
-                 type: str = 'UNKW', include_description: bool = False, include_title: bool = False,
-                 include_location: bool = False, prefix: str = None, exclude_keywords: str = ''):
+                 caltype: str = 'UNKW', include_description: bool = False, include_title: bool = False,
+                 include_location: bool = False, custom_prefix: str = None, exclude_keywords: str = ''):
         self._name = name  # CharField
         self._url = url  # URLField
         self._username = username  # EncryptedCharField
         self._password = password  # EncryptedCharField
-        self._caltype = Source.CalendarTypes(type).name
+        self._caltype = Source.CalendarTypes(caltype).name
         self._include_title = include_title  # BooleanField
         self.include_description = include_description  # BooleanField - Include Event Description
         self.include_location = include_location  # BooleanField - Include Event Location,
-        self.custom_prefix = prefix  # CharField optional prefix to add before each event title from this feed (e.g., '[Work]').
+        self.custom_prefix = custom_prefix  # CharField optional prefix to add before each event title from this feed (e.g., '[Work]').
         self.exclude_keywords = exclude_keywords  # TextField keywords separated by commas. Events from this feed containing these keywords in their title
 
     @property
@@ -107,7 +108,7 @@ class Source:
         self._caltype = validate_auth_url(self.url, self.username, self.password)
 
 
-def validate_auth_url(url, username=None, password=None):
+def validate_auth_url(url, username=None, password=None) -> Source.CalendarTypes:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/91.0.4472.124 Safari/537.36",
@@ -262,7 +263,7 @@ class CalendarMerger:
             event.pop("location", None)
 
     def _should_include_event(self, event: Event, source: Source) -> bool:
-        if not source.exclude_keywords:
+        if not source.exclude_keywords or pd.isna(source.exclude_keywords):
             return True
 
         exclude_keywords = [
