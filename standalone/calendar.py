@@ -13,9 +13,9 @@ from requests import get as rq_get
 
 from icalendar import Calendar as ICal, TimezoneStandard, Timezone, Event
 
-from mergecal.calendars.caldav import is_caldav_url, fetch_and_create_caldav_calendar
-from mergecal.calendars.meetup import is_meetup_url, fetch_and_create_meetup_calendar
-from standalone import logger
+from mergecal.mergecal.calendars.caldav import is_caldav_url, fetch_and_create_caldav_calendar
+from mergecal.mergecal.calendars.meetup import is_meetup_url, fetch_and_create_meetup_calendar
+from mergecal.standalone import logger
 
 
 class Calendar:
@@ -140,6 +140,7 @@ def validate_auth_url(url, username=None, password=None) -> Source.CalendarTypes
         raise RuntimeError(f'HTTPError {status_code}\n{e}')
     except ValueError as e:
         if re.search('webdav', str(e), re.IGNORECASE):
+            print(f"****************************** {url} is caldav")
             return Source.CalendarTypes.CALDAV
 
         raise RuntimeError(f"{inspect.currentframe().f_code.co_name}: enter a valid icalendar feed.\n{e}")
@@ -193,10 +194,11 @@ class CalendarMerger:
 
     def _add_source_events(self, source: Source, existing_uids: set) -> None:
         source_calendar = None
-        if source.caltype == Source.CalendarTypes.MEETUP or (source.caltype == Source.CalendarTypes.UNKNOWN and
+
+        if source.caltype == Source.CalendarTypes.MEETUP.name or (source.caltype == Source.CalendarTypes.UNKNOWN and
                                                              is_meetup_url(source.url)):
             source_calendar = fetch_and_create_meetup_calendar(source.url)
-        elif source.caltype == Source.CalendarTypes.CALDAV or (source.caltype == Source.CalendarTypes.UNKNOWN and
+        elif source.caltype == Source.CalendarTypes.CALDAV.name or (source.caltype == Source.CalendarTypes.UNKNOWN and
                                                                is_caldav_url(source.url)):
             auth = HTTPBasicAuth(username=source.username, password=source.password)
             source_calendar = fetch_and_create_caldav_calendar(source.url, auth)
@@ -228,12 +230,13 @@ class CalendarMerger:
             response.raise_for_status()
 
             # Log the response content for debugging
-            logger.debug(f"Response content for {url}: {response.text[:500]}...")
+            # logger.debug(f"Response content for {url}: {response.text[:500]}...")
 
             calendar = ICal.from_ical(response.text)
             validate_calendar(calendar)
         except RequestException as e:
             self._add_source_error(source, f"HTTP error: {e!s}")
+            logger.debug(f"HTTP error: {e!s}")
             return None
         except ValueError as e:
             self._add_source_error(source, f"Parsing error: {e!s}")
