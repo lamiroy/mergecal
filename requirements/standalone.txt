@@ -1,0 +1,7 @@
+bs4
+caldav
+cffi
+cryptography
+icalendar
+pandas
+requests
