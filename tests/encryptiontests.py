@@ -16,7 +16,8 @@ message = "hello geeks"
 # here I'm using fernet to generate key
 
 key = Fernet.generate_key()
-print(key)
+with open("Fkey","bw") as f:
+    f.write(new_key)
 # Instance the Fernet class with the key
 
 fernet = Fernet(key)
