@@ -102,6 +102,7 @@ if __name__ == '__main__':
     # Create a pandas dataframe with the data
     DATA = StringIO(DATA)
     df = pd.read_csv(DATA)
+    df['custom_prefix'] = df['custom_prefix'].fillna('')
 
     # Iterate over calendar sources and add them to calendar
     for _, source_params in df.iterrows():
