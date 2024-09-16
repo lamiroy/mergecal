@@ -2,6 +2,7 @@ bs4
 caldav
 cffi
 cryptography
+dotenv
 icalendar
 pandas
 python-dotenv
