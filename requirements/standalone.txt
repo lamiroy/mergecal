@@ -5,4 +5,5 @@ cryptography
 icalendar
 pandas
 python-dotenv
+python-dateutil
 requests
