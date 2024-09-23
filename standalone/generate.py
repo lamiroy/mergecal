@@ -54,6 +54,7 @@ if __name__ == '__main__':
         --input_file (-in)
         --encryption_key_fle (-key)
         --calendar_name (-cname)
+        --include_past (-p)
     '''
     parser = argparse.ArgumentParser(prog="generate",
                                      description=f'Generates an .ics file of merged calendar sources (version {version_number})')
@@ -66,6 +67,7 @@ if __name__ == '__main__':
     parser.add_argument("--calendar_name", "-cname", metavar='cname', type=str, nargs='?',
                         help=f'Calendar name (defaults to "{calendar_name}" if non specified)',
                         default=calendar_name)
+    parser.add_argument('--include_past', '-p', metavar='past', type=bool, action=argparse.BooleanOptionalAction)
 
     args = parser.parse_args()
 
@@ -112,7 +114,7 @@ if __name__ == '__main__':
         cal.addSource(s)
 
     # Read all sources and merge them to ICal string
-    c = CalendarMerger(cal).merge()
+    c = CalendarMerger(cal).merge(include_past=args.include_past)
 
     # Save ICal string to file
     with open(f'{calendar_name}_{output_filename}.ics', 'w') as f:

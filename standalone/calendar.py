@@ -1,7 +1,8 @@
 import inspect
 import re
 import zoneinfo
-from datetime import timedelta, datetime
+
+from datetime import timedelta, datetime, date
 from enum import Enum
 import pandas as pd
 
@@ -153,9 +154,9 @@ class CalendarMerger:
         self.calendar = calendar
         self.merged_calendar = None
 
-    def merge(self) -> str:
+    def merge(self, include_past=True) -> str:
         self.merged_calendar = self._create_new_calendar()
-        self._add_sources()
+        self._add_sources(include_past)
         self._finalize_merged_calendar()
         calendar_str = self.merged_calendar.to_ical().decode("utf-8")
 
@@ -187,12 +188,12 @@ class CalendarMerger:
 
         cal.add_component(newtimezone)
 
-    def _add_sources(self) -> None:
+    def _add_sources(self, include_past=False) -> None:
         existing_uids = set()
         for source in self.calendar.sources:
-            self._add_source_events(source, existing_uids)
+            self._add_source_events(source, existing_uids, include_past)
 
-    def _add_source_events(self, source: Source, existing_uids: set) -> None:
+    def _add_source_events(self, source: Source, existing_uids: set, include_past: bool = False) -> None:
         source_calendar = None
 
         if source.caltype == Source.CalendarTypes.MEETUP.name or (source.caltype == Source.CalendarTypes.UNKNOWN and
@@ -207,7 +208,7 @@ class CalendarMerger:
 
         if source_calendar:
             for component in source_calendar.walk("VEVENT"):
-                self._process_event(component, source, existing_uids)
+                self._process_event(component, source, existing_uids, include_past)
 
     def _fetch_source_calendar(self, source: Source) -> None | ICal:
         url = source.url
@@ -244,11 +245,11 @@ class CalendarMerger:
 
         return calendar
 
-    def _process_event(self, event: Event, source: Source, existing_uids: set) -> None:
+    def _process_event(self, event: Event, source: Source, existing_uids: set, include_past=True) -> None:
         uid = event.get("uid")
         if uid is None or uid not in existing_uids:
             self._apply_event_rules(event, source)
-            if self._should_include_event(event, source):
+            if self._should_include_event(event, source, include_past):
                 self.merged_calendar.add_component(event)
                 if uid is not None:
                     existing_uids.add(uid)
@@ -265,7 +266,42 @@ class CalendarMerger:
         if not source.include_location:
             event.pop("location", None)
 
-    def _should_include_event(self, event: Event, source: Source) -> bool:
+    def _should_include_event(self, event: Event, source: Source, include_past=True) -> bool:
+
+        tz_pytz = pytz.timezone(self.calendar.timezone)
+        now = tz_pytz.localize(datetime.now())
+        today = now.date()
+        dtend_later = False
+        rrule_later = False
+
+        dtend = event.get('dtend')
+        try:
+            if dtend is None: # Undefined end of event
+                dtend_later = True
+            elif dtend.dt.tzinfo is None or dtend.dt.tzinfo.utcoffset(dtend.dt) is None: # tz bound end datetime
+                dtend_later = (dtend.dt > datetime.now())
+            else: # not tz bound
+                dtend_later = (dtend.dt > now)
+
+        except (TypeError, AttributeError):
+            dtend_later = (event.get('dtend').dt > today)
+
+        if event.get('rrule', None) is not None:
+            try:
+                until = event.get('rrule').get('until')
+                if until is None: # Infinitely recurring event
+                    rrule_later = True
+                elif until[0].tzinfo is None or until[0].tzinfo.utcoffset(until[0]) is None: # tz bound end datetime
+                    rrule_later = (until[0] > datetime.now())
+                else: # not tz bound
+                    rrule_later = (until[0] > now)
+
+            except (TypeError, AttributeError): # Exception occurs if end of recurring event is date and not datetime
+                rrule_later = (until[0] > today)
+
+        if not include_past and not dtend_later and not rrule_later:
+            return False
+
         if not source.exclude_keywords or pd.isna(source.exclude_keywords):
             return True
 
