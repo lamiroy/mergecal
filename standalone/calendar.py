@@ -210,7 +210,7 @@ class CalendarMerger:
             for component in source_calendar.walk("VEVENT"):
                 self._process_event(component, source, existing_uids, include_past)
 
-    def _fetch_source_calendar(self, source: Source) -> None | ICal:
+    def _fetch_source_calendar(self, source: Source) -> ICal:
         url = source.url
         auth = HTTPBasicAuth(username=source.username, password=source.password)
         headers = {
