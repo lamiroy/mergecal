@@ -67,7 +67,7 @@ if __name__ == '__main__':
     parser.add_argument("--calendar_name", "-cname", metavar='cname', type=str, nargs='?',
                         help=f'Calendar name (defaults to "{calendar_name}" if non specified)',
                         default=calendar_name)
-    parser.add_argument('--include_past', '-p', metavar='past', type=bool, action=argparse.BooleanOptionalAction)
+    parser.add_argument('--include_past', '-p', default=False, action='store_true')
 
     args = parser.parse_args()
 
